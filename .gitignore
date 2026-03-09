@@ -1,6 +1,6 @@
-# Cache BAM curves — garder le dossier, ignorer le contenu
-cache_bam_curves/*
-!cache_bam_curves/.gitkeep
+# Cache BAM curves — inclure tous les CSV (partagés sur GitHub)
+!cache_bam_curves/
+!cache_bam_curves/**
 
 # Python
 __pycache__/
