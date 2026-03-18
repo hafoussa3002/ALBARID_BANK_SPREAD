@@ -181,7 +181,6 @@ class BamCurveFetcher:
             return None
         txt = p.read_text(encoding="utf-8", errors="ignore")
         if not txt.strip():
-            # Empty marker from old runs: remove it so next run retries network.
             try:
                 p.unlink(missing_ok=True)
             except Exception:
@@ -297,7 +296,6 @@ class BamCurveFetcher:
         return results
 
     async def _fetch_one_date_async(self, session: aiohttp.ClientSession, d: date) -> tuple[date, tuple[list[int], list[float]] | None]:
-        # 1) Try direct CSV URL first (fast path)
         txt = await self._async_get_direct_csv_with_retry(session, d)
         if txt:
             try:
@@ -307,7 +305,6 @@ class BamCurveFetcher:
             except Exception:
                 pass
 
-        # 2) Fallback to HTML page + CSV link discovery
         txt = await self._async_fetch_via_html_with_retry(session, d)
         if txt:
             try:
@@ -317,7 +314,6 @@ class BamCurveFetcher:
             except Exception:
                 pass
 
-        # 3) no data (do not write empty marker to avoid poisoning cache on transient failures)
         return d, None
 
     async def _async_get_direct_csv_with_retry(self, session: aiohttp.ClientSession, d: date) -> Optional[str]:
@@ -366,7 +362,6 @@ class BamCurveFetcher:
                     if status >= 400:
                         return None
                     if _looks_like_html(text) and "/export/blockcsv/" in url:
-                        # direct CSV endpoint returned HTML (not a CSV payload)
                         return None
                     return text
             except (aiohttp.ClientError, asyncio.TimeoutError):
