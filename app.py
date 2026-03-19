@@ -3,7 +3,7 @@ from __future__ import annotations
 import base64
 import io
 import logging
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from statistics import median
 from typing import Optional
@@ -767,7 +767,7 @@ def _page_spread() -> None:
         stxt.markdown(
             f"<span style='color:#FFFFFF;font-size:0.85rem;'>"
             f"Courbes BAM : <b>{done}/{total}</b>"
-            f" &nbsp;(cache : {n_cache} | réseau : {n_net}){eta_str}</span>",
+            f" &nbsp;(Supabase/cache : {n_cache} | réseau BAM : {n_net}){eta_str}</span>",
             unsafe_allow_html=True,
         )
 
@@ -777,9 +777,30 @@ def _page_spread() -> None:
         progress_callback=_progress,
     )
 
+    # Pour les dates sans courbe, chercher la date ouvrable la plus proche (±5 jours)
+    missing_dates = [d for d in unique_dates if not curves.get(d)]
+    if missing_dates:
+        fallback_candidates: set[date] = set()
+        for d in missing_dates:
+            for delta in range(1, 6):
+                fallback_candidates.add(d - timedelta(days=delta))
+                fallback_candidates.add(d + timedelta(days=delta))
+        fallback_candidates -= set(unique_dates)
+        fallback_curves = fetcher.get_curves_parallel(list(fallback_candidates), max_workers=10)
+        for d in missing_dates:
+            for delta in range(1, 6):
+                for candidate in (d - timedelta(days=delta), d + timedelta(days=delta)):
+                    if fallback_curves.get(candidate):
+                        curves[d] = fallback_curves[candidate]
+                        break
+                if curves.get(d):
+                    break
+
     pbar.empty(); stxt.empty()
-    ok = sum(1 for v in curves.values() if v is not None)
-    st.success(f"✅ {ok}/{total_dates} courbes BDT récupérées.")
+    ok     = sum(1 for v in curves.values() if v is not None)
+    no_data = total_dates - ok
+    st.success(f"✅ {ok} courbes BDT récupérées (Supabase + cache + BAM)."
+               + (f"  ❌ {no_data} date(s) sans données BAM (jour non ouvré)." if no_data else ""))
 
     # ── Calcul taux BDT + spread ───────────────────────────────────────────────
     bdt_rates:   list[Optional[float]] = []

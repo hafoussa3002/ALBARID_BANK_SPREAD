@@ -30,6 +30,15 @@ import pandas as pd
 import requests
 from bs4 import BeautifulSoup
 
+try:
+    from core.supabase_cache import get_curve as _supa_get, save_curve as _supa_save, get_all_cached_dates as _supa_all_dates
+    _SUPABASE_OK = True
+except ImportError:
+    _SUPABASE_OK = False
+    def _supa_get(d): return None          # type: ignore[misc]
+    def _supa_save(d, mt, tx): pass        # type: ignore[misc]
+    def _supa_all_dates(): return set()    # type: ignore[misc]
+
 
 LOGGER = logging.getLogger(__name__)
 
@@ -217,29 +226,69 @@ class BamCurveFetcher:
         total = len(unique_dates)
         results: dict[date, tuple[list[int], list[float]] | None] = {}
 
-        cached_dates: list[date] = []
+        # ── Étape 1 : dates déjà en Supabase ─────────────────────────────────
+        supa_dates: set[date] = _supa_all_dates()
+
+        supabase_hits: list[date] = []
+        local_hits:    list[date] = []
         network_dates: list[date] = []
+
         for d in unique_dates:
-            if self._cache_path(d).exists():
-                cached_dates.append(d)
+            if d in supa_dates:
+                supabase_hits.append(d)
+            elif self._cache_path(d).exists():
+                local_hits.append(d)
             else:
                 network_dates.append(d)
 
-        for d in cached_dates:
+        # ── Étape 2 : charger depuis Supabase ─────────────────────────────────
+        for d in supabase_hits:
+            curve = _supa_get(d)
+            if curve is not None:
+                results[d] = curve
+                # Sauvegarder aussi en local si absent
+                if not self._cache_path(d).exists():
+                    try:
+                        mt_l, tx_l = curve
+                        csv_txt = "mt;tx\n" + "\n".join(f"{m};{t}" for m, t in zip(mt_l, tx_l))
+                        self._cache_path(d).write_text(csv_txt, encoding="utf-8")
+                    except Exception:
+                        pass
+            else:
+                local_hits.append(d)  # fallback sur local si Supabase retourne None
+
+        # ── Étape 3 : charger depuis cache local ──────────────────────────────
+        for d in local_hits:
             try:
-                results[d] = self._load_from_cache(d)
+                curve = self._load_from_cache(d)
+                results[d] = curve
+                # Synchroniser vers Supabase si absent
+                if curve is not None and d not in supa_dates:
+                    _supa_save(d, curve[0], curve[1])
             except Exception:
                 results[d] = None
 
-        done = len(cached_dates)
+        done = len(supabase_hits) + len(local_hits)
+        n_cache = done
         if progress_callback:
-            progress_callback(done, total, len(cached_dates), len(network_dates), 0.0)
+            progress_callback(done, total, n_cache, len(network_dates), 0.0)
 
+        # ── Étape 4 : scraper BAM pour les dates manquantes ───────────────────
         if network_dates:
             t0 = time.perf_counter()
-            async_results = self._run_async(self._fetch_all_curves_async(network_dates, max_workers=max_workers, progress_start=done, total=total, n_cache=len(cached_dates), progress_callback=progress_callback))
+            async_results = self._run_async(self._fetch_all_curves_async(
+                network_dates,
+                max_workers=max_workers,
+                progress_start=done,
+                total=total,
+                n_cache=n_cache,
+                progress_callback=progress_callback,
+            ))
             for d, v in async_results.items():
                 results[d] = v
+                # Sauvegarder vers Supabase après scraping
+                if v is not None:
+                    _supa_save(d, v[0], v[1])
             _ = time.perf_counter() - t0
 
         return results
