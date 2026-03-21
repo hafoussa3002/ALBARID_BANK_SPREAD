@@ -133,11 +133,27 @@ STYLE = """
 }
 [data-testid="stSidebar"] * { color: #EDE0D4 !important; }
 
+/* widget labels */
+label, p,
+[data-testid="stWidgetLabel"] p,
+[data-testid="stDateInput"] label,
+[data-testid="stDateInput"] p,
+[data-testid="stNumberInput"] label,
+[data-testid="stNumberInput"] p,
+[data-testid="stSelectbox"] label,
+[data-testid="stSelectbox"] p,
+[data-testid="stCheckbox"] p,
+.stDateInput label, .stNumberInput label,
+.stSelectbox label, .stCheckbox label {
+    color: #F0EAE2 !important;
+}
+
 /* inputs */
 [data-testid="stTextInput"] input,
-[data-testid="stNumberInput"] input {
+[data-testid="stNumberInput"] input,
+[data-testid="stDateInput"] input {
     background: rgba(255,255,255,0.06) !important;
-    color: #EDE0D4 !important;
+    color: #F0EAE2 !important;
     border: 1px solid rgba(200,80,30,0.35) !important;
     border-radius: 8px !important;
 }
@@ -1100,16 +1116,24 @@ def _page_spread() -> None:
             _apply_number_formats(ws, n_data)
             _add_summary(ws, df_out, n_data)
 
+        # Si le filtre 10-70 bps donne 0 résultats, exporter tout sans filtre
+        if df_xls_filt.empty and not df_xls.empty:
+            df_xls_filt = df_xls.copy()
+            st.warning("⚠️ Aucun instrument avec spread entre 10 et 70 bps — export de tous les instruments.")
+
         output_tcn = io.BytesIO()
         with pd.ExcelWriter(output_tcn, engine="openpyxl") as writer:
             if not df_xls_filt.empty:
                 _write_sheet_tcn(writer, df_xls_filt, "TOUT")
-            df_xls_filt = df_xls_filt.copy()
-            df_xls_filt["_type_nn"] = df_xls_filt["Type"].fillna("AUTRE")
-            df_xls_filt["_bank_nn"] = df_xls_filt["_bank"].fillna("AUTRE")
-            for (typ, bank), df_grp in df_xls_filt.groupby(["_type_nn", "_bank_nn"]):
-                if not df_grp.empty:
-                    _write_sheet_tcn(writer, df_grp, f"{typ}_{bank}")
+                df_xls_filt = df_xls_filt.copy()
+                df_xls_filt["_type_nn"] = df_xls_filt["Type"].fillna("AUTRE")
+                df_xls_filt["_bank_nn"] = df_xls_filt["_bank"].fillna("AUTRE")
+                for (typ, bank), df_grp in df_xls_filt.groupby(["_type_nn", "_bank_nn"]):
+                    if not df_grp.empty:
+                        _write_sheet_tcn(writer, df_grp, f"{typ}_{bank}")
+            else:
+                # Feuille vide pour éviter l'IndexError openpyxl
+                pd.DataFrame(columns=["Aucune donnée"]).to_excel(writer, sheet_name="VIDE", index=False)
 
         output_tcn.seek(0)
         st.download_button(
