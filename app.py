@@ -1211,14 +1211,18 @@ def _page_spread() -> None:
                 # 2 blank rows between tables
                 current_row += 2
 
-            # Auto-width columns
-            for col_cells in ws.columns:
-                col_letter = col_cells[0].column_letter
-                max_len = max(
-                    (len(str(cell.value)) if cell.value is not None else 0)
-                    for cell in col_cells
-                )
-                ws.column_dimensions[col_letter].width = min(max(max_len + 2, 12), 50)
+            # Auto-width columns (skip MergedCell objects)
+            from openpyxl.utils import get_column_letter
+            for ci in range(1, ws.max_column + 1):
+                col_letter = get_column_letter(ci)
+                max_len = 12
+                for row_cells in ws.iter_rows(min_col=ci, max_col=ci):
+                    for cell in row_cells:
+                        try:
+                            max_len = max(max_len, len(str(cell.value)) if cell.value is not None else 0)
+                        except Exception:
+                            pass
+                ws.column_dimensions[col_letter].width = min(max_len + 2, 50)
 
         # Si le filtre 10-70 bps donne 0 résultats, exporter tout sans filtre
         if df_xls_filt.empty and not df_xls.empty:
@@ -1501,14 +1505,18 @@ def _page_spread() -> None:
                 # 2 blank rows between tables
                 current_row += 2
 
-            # Auto-width columns
-            for col_cells in ws.columns:
-                col_letter = col_cells[0].column_letter
-                max_len = max(
-                    (len(str(cell.value)) if cell.value is not None else 0)
-                    for cell in col_cells
-                )
-                ws.column_dimensions[col_letter].width = min(max(max_len + 2, 12), 50)
+            # Auto-width columns (skip MergedCell objects)
+            from openpyxl.utils import get_column_letter
+            for ci in range(1, ws.max_column + 1):
+                col_letter = get_column_letter(ci)
+                max_len = 12
+                for row_cells in ws.iter_rows(min_col=ci, max_col=ci):
+                    for cell in row_cells:
+                        try:
+                            max_len = max(max_len, len(str(cell.value)) if cell.value is not None else 0)
+                        except Exception:
+                            pass
+                ws.column_dimensions[col_letter].width = min(max_len + 2, 50)
 
         st.info(f"Export OBLIG_ORDN : **{len(df_oblig)}** obligations (hors banques).")
 
